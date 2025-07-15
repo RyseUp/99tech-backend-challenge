@@ -1,45 +1,62 @@
 /**
- * Approach 1: Iterative loop (for loop)
- * Add up all numbers from 1 to n using a standard loop.
+ * Problem 4 – Three ways to sum to n
+ * Author: RyseUp (Minh)
+ * Description: Implement 3 different methods to sum from 1 to n (inclusive).
+ */
+
+/**
+ * Approach A: Iterative loop
  * Time complexity: O(n)
  * Space complexity: O(1)
- * This is simple and reliable for all reasonable values of n.
+ * Reliable and readable, but slower than formula.
  */
 export function sum_to_n_a(n: number): number {
-    let sum = 0;
-    for (let i = 1; i <= n; i++) {
-        sum += i;
-    }
-    return sum;
+  if (n <= 0) return 0;
+  let sum = 0;
+  for (let i = 1; i <= n; i++) {
+    sum += i;
+  }
+  return sum;
 }
+
 /**
- * Approach 2: Mathematical formula
- * Uses the arithmetic progression formula: sum = n * (n + 1) / 2
- * Time complexity: O(1) (constant time)
+ * Approach B: Math formula (Arithmetic Progression)
+ * Formula: sum = n * (n + 1) / 2
+ * Time complexity: O(1)
  * Space complexity: O(1)
- * Fastest and most efficient for all valid values of n.
+ * Best performance.
  */
 export function sum_to_n_b(n: number): number {
-    return (n * (n + 1))/2;
+  if (n <= 0) return 0;
+  return (n * (n + 1)) / 2;
 }
+
 /**
- * Approach 3: Recursive function
- * Adds n to sum_to_n_c(n-1) recursively until n == 1.
+ * Approach C: Recursive
  * Time complexity: O(n)
- * Space complexity: O(n) due to call stack usage
- * Simple but not recommended for large n (risk of stack overflow).
+ * Space complexity: O(n) - due to call stack
+ * Elegant but risky for large n (stack overflow)
  */
 export function sum_to_n_c(n: number): number {
-    if (n <= 1) return n;
-    return n + sum_to_n_c(n-1);
+  if (n <= 0) return 0;
+  if (n === 1) return 1;
+  return n + sum_to_n_c(n - 1);
 }
 
-// === Quick test ===
+/**
+ * Quick test runner
+ */
 function test() {
-  const n = 1000;
-  console.log(`sum_to_n_a(${n}) =`, sum_to_n_a(n));
-  console.log(`sum_to_n_b(${n}) =`, sum_to_n_b(n)); 
-  console.log(`sum_to_n_c(${n}) =`, sum_to_n_c(n)); 
+  const cases = [5, 10, 0, -5, 100];
+
+  for (const n of cases) {
+    console.log(`\n=== Test with n = ${n} ===`);
+    console.log("sum_to_n_a:", sum_to_n_a(n));
+    console.log("sum_to_n_b:", sum_to_n_b(n));
+    console.log("sum_to_n_c:", sum_to_n_c(n));
+  }
 }
 
-test()
+if (require.main === module) {
+  test();
+}
