@@ -6,6 +6,8 @@ This repository contains my solutions for the 99tech backend engineer assignment
 
 ## Problem 4: Sum to N
 
+Source: [`src/problem4_sum_to_n/index.ts`](./src/problem4_sum_to_n/index.ts)
+
 ### Description
 
 Calculates the sum of numbers from 1 to n using three approaches:

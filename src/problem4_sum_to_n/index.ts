@@ -1,10 +1,4 @@
 /**
- * Problem 4 – Three ways to sum to n
- * Author: RyseUp (Minh)
- * Description: Implement 3 different methods to sum from 1 to n (inclusive).
- */
-
-/**
  * Approach A: Iterative loop
  * Time complexity: O(n)
  * Space complexity: O(1)
