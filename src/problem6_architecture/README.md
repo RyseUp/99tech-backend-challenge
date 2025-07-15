@@ -2,55 +2,55 @@
 
 ## 1. Overview
 
-This module implements a live scoreboard for a web/app, supporting:
-- Displaying the top 10 users with the highest scores (leaderboard).
-- Real-time updates to the leaderboard when user scores change.
-- Securely updating user scores only after a valid action.
-- Anti-cheat measures to prevent unauthorized score increases.
+This module implements a real-time scoreboard system for a web/app platform. It supports:
+
+- Displaying the **top 10 users with the highest scores** (leaderboard).
+- **Live updates** to subscribed clients when the leaderboard changes.
+- **Secure score updates** based on valid in-game actions.
+- **Anti-cheat** mechanisms to prevent unauthorized score increases.
 
 ---
 
 ## 2. API Design
 
 ### a. Get Leaderboard
+
 - **GET** `/api/leaderboard`
 - **Response:**
-    ```json
-    [
-      { "userId": "alice", "score": 2031 },
-      { "userId": "bob", "score": 1985 },
-      { "userId": "charlie", "score": 1872 },
-      { "userId": "daisy", "score": 1720 },
-      { "userId": "emily", "score": 1693 },
-      { "userId": "frank", "score": 1630 },
-      { "userId": "grace", "score": 1602 },
-      { "userId": "harry", "score": 1527 },
-      { "userId": "isabel", "score": 1476 },
-      { "userId": "john", "score": 1405 }
-    ]
-    ```
+  ```json
+  [
+    { "userId": "alice", "score": 2031 },
+    { "userId": "bob", "score": 1985 },
+    ...
+  ]
+  ```
 
 ### b. Update Score
+
 - **POST** `/api/update-score`
 - **Request:**
-    ```json
-    {
-      "userId": "abc1",
-      "actionId": "game_mission_1",
-      "jwt": "<user_jwt_token>"
-    }
-    ```
+  ```json
+  {
+    "userId": "abc1",
+    "actionId": "game_mission_1",
+    "jwt": "<user_jwt_token>"
+  }
+  ```
 - **Response:**
-    ```json
-    { "success": true, "newScore": 124 }
-    ```
 
-### c. Live Leaderboard Updates (WebSocket/SSE)
-- When the top 10 changes, the backend pushes updates to subscribed clients.
+  ```json
+  { "success": true, "newScore": 124 }
+  ```
+
+- **Note:** `actionId` must be unique per user to ensure **idempotency** and prevent replay attacks.
+
+### c. Live Leaderboard Updates
+
+- **WebSocket/SSE**: Clients subscribe to receive real-time updates when the top 10 changes.
 
 ---
 
-## 3. Execution Flow (Sequence Diagram with Conditions)
+## 3. Execution Flow
 
 ```mermaid
 sequenceDiagram
@@ -59,89 +59,104 @@ sequenceDiagram
   participant APIGateway
   participant AuthService
   participant ScoreService
+  participant ScoreProcessor
   participant Database
   participant Cache
   participant NotificationService
 
-  User->>Frontend: Complete action (e.g., win game)
+  User->>Frontend: Completes game action
   Frontend->>APIGateway: POST /api/update-score
-  APIGateway->>AuthService: Validate JWT/session
+  APIGateway->>AuthService: Validate JWT
 
-  alt Auth Success
+  alt Authenticated
     AuthService-->>APIGateway: OK
-    APIGateway->>ScoreService: Forward update-score request
-    ScoreService->>ScoreService: Validate action & anti-cheat (check actionID uniqueness, timestampp)
+    APIGateway->>ScoreService: Forward update request
+    ScoreService->>ScoreProcessor: validateAction(userId, actionId)
 
-    alt Valid Action
-      ScoreService->>Database: Update user score
-      Database-->>ScoreService: OK
-      ScoreService->>Cache: Invalidate top 10 cache (invalidate old, rebuild if Redis unavailable, fallback to DB)
-      Cache-->>ScoreService: Success
-
-      opt Top 10 changed
-        ScoreService->>Cache: Query new top 10 scores
-        Cache-->>ScoreService: Top 10 list
-        ScoreService->>NotificationService: Push new top 10
-        NotificationService->>Frontend: WebSocket update
+    alt Action valid and unique
+      ScoreProcessor->>Database: Persist new score, save actionId
+      ScoreProcessor->>Cache: Invalidate leaderboard cache
+      alt Top 10 changed
+        ScoreProcessor->>Cache: Get updated leaderboard
+        Cache-->>ScoreProcessor: Top 10
+        ScoreProcessor->>NotificationService: Broadcast new leaderboard
+        NotificationService-->>Frontend: Push via WebSocket
       end
-
-      APIGateway-->>Frontend: Success (newScore)
-    else Invalid Action / Cheating
-      APIGateway-->>Frontend: Error (rejected)
+      ScoreService-->>APIGateway: { success: true, newScore }
+    else Invalid or duplicate action
+      ScoreService-->>APIGateway: { error: "Invalid action" }
     end
-
-  else Auth Fail
-    AuthService-->>APIGateway: Fail
-    APIGateway-->>Frontend: Error (unauthorized)
+  else Invalid JWT
+    AuthService-->>APIGateway: 401 Unauthorized
+    APIGateway-->>Frontend: Error
   end
 ```
-## 4. Redis Leaderboard Solution
-
-The system leverages **Redis Sorted Set (ZSET)** for fast leaderboard operations.
-
-**Main commands:**
-
-- **Increase user score:**
-    ```redis
-    ZINCRBY leaderboard 10 user123
-    ```
-  Increments the score of user `user123` by 10.
-- **Fetch top 10 users:**
-    ```redis
-    ZREVRANGE leaderboard 0 9 WITHSCORES
-    ```
-  Retrieves the top 10 users with the highest scores.
-- **Remove user from leaderboard:**
-    ```redis
-    ZREM leaderboard user123
-    ```
-
-**Advantages:**
-- **Fast:** All leaderboard read/write operations are O(logN).
-- **Scalable:** Suitable for real-time systems with frequent score changes.
-- **Simple backup:** Snapshot leaderboard to persistent storage as needed.
 
 ---
 
-## 5. Security & Anti-Cheat Considerations
+## 4. Redis Leaderboard Design
 
-- **Authentication:** Require a valid JWT/OAuth token for any score update.
-- **Validation:** The backend verifies that each action is legitimate, not a replay or spam (e.g., each `actionId` is unique for each user).
-- **Rate limiting:** Apply API rate limits per user to prevent abuse.
-- **Audit log:** Record all score updates for security monitoring and troubleshooting.
-- **Never trust the client:** All validation and score calculations happen on the backend only.
+The system uses **Redis Sorted Set (ZSET)** for fast, in-memory leaderboard management.
+
+### Commands:
+
+| Action                       | Command Example                        |
+| ---------------------------- | -------------------------------------- |
+| Add/Increase user score      | `ZINCRBY leaderboard 10 user123`       |
+| Get top 10 users             | `ZREVRANGE leaderboard 0 9 WITHSCORES` |
+| Remove user from leaderboard | `ZREM leaderboard user123`             |
+
+### Benefits:
+
+- Fast: All operations are **O(logN)**
+- Realtime: Perfect for live top-10 ranking
+- Simple: Easily resettable or backfilled from DB
 
 ---
 
-## 6. Potential Improvements
+## 5. Security & Anti-Cheat Measures
 
-- **Horizontal scaling:**  
-  The ScoreService is stateless, so it can be deployed behind a load balancer and auto-scaled.
-- **Pub/Sub:**  
-  Use Redis Pub/Sub or Kafka to sync leaderboard or cache updates across multiple ScoreService instances.
-- **Efficient notifications:**  
-  Only send real-time leaderboard updates to clients when the actual top 10 changes.
-- **Monitoring and alerting:**  
-  Track suspicious activity (unusually fast score increases, bot patterns, etc.) and trigger alerts.
-- **Score history:**  
-  Store historical score changes for analytics, rollback, and leaderboard trends.
+| Risk               | Mitigation Strategy                                              |
+| ------------------ | ---------------------------------------------------------------- |
+| Fake score update  | Require valid **JWT** for all write actions                      |
+| Replay attack      | Enforce **unique `actionId` per user** (store/check in DB/Redis) |
+| Spamming updates   | Use **rate limiting** per user (e.g., Redis + sliding window)    |
+| Score tampering    | Never trust client-side score; only backend calculates score     |
+| Debug/trace issues | Log all updates in **audit table** for rollback & investigation  |
+
+---
+
+## 6. Scaling & Reliability Enhancements
+
+- **Stateless service**: All backend services are stateless → scale horizontally via load balancer.
+- **Pub/Sub sync**: Use Redis Pub/Sub or Kafka to sync leaderboard/cache across ScoreService replicas.
+- **Fallback logic**:
+  - If Redis unavailable → rebuild leaderboard from DB on demand.
+  - Temporary **in-memory fallback** (e.g., LRU cache) for short outages.
+- **Efficient notifications**:
+  - Only push updates if leaderboard actually changed (compare hashes before broadcasting).
+- **Monitoring**:
+  - Integrate with Prometheus + Grafana for suspicious activity (e.g., rapid scoring).
+- **Score history**:
+  - Maintain time-series score log per user (optional) for analytics or rollback.
+
+---
+
+## 7. Suggested Tech Stack
+
+| Component            | Technology                        |
+| -------------------- | --------------------------------- |
+| API Gateway          | Nginx + JWT Middleware            |
+| Auth Service         | Node.js / Go + JWT                |
+| Score Service        | Node.js / Go                      |
+| ScoreProcessor       | Internal logic handler            |
+| Database             | PostgreSQL (user, score, actions) |
+| Cache & Leaderboard  | Redis (ZSET)                      |
+| Notification Service | WebSocket + Redis Pub/Sub         |
+| Monitoring           | Prometheus + Grafana              |
+
+---
+
+## 8. Conclusion
+
+This design balances **performance**, **security**, and **scalability**, making it suitable for real-time applications such as games or competitive learning apps. The system leverages Redis and WebSocket for high-speed interactions, while remaining resilient via stateless design, rate limiting, and strong data validation.
