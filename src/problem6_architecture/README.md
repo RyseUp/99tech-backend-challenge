@@ -20,8 +20,7 @@ This module implements a real-time scoreboard system for a web/app platform. It 
   ```json
   [
     { "userId": "alice", "score": 2031 },
-    { "userId": "bob", "score": 1985 },
-    ...
+    { "userId": "bob", "score": 1985 }
   ]
   ```
 
@@ -37,11 +36,9 @@ This module implements a real-time scoreboard system for a web/app platform. It 
   }
   ```
 - **Response:**
-
   ```json
   { "success": true, "newScore": 124 }
   ```
-
 - **Note:** `actionId` must be unique per user to ensure **idempotency** and prevent replay attacks.
 
 ### c. Live Leaderboard Updates
@@ -54,43 +51,44 @@ This module implements a real-time scoreboard system for a web/app platform. It 
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Frontend
-    participant APIGateway
-    participant AuthService
-    participant ScoreService
-    participant ScoreProcessor
-    participant Database
-    participant Cache
-    participant NotificationService
+    participant C as Client (Browser)
+    participant S as Application Server
+    participant Auth as Authen/Author Server
+    participant DB as Database
+    participant Redis as Redis (Cache + Leaderboard)
+    participant NS as Notification Server (WebSocket)
 
-    User->>Frontend: Completes game action
-    Frontend->>APIGateway: POST /api/update-score
-    APIGateway->>AuthService: Validate JWT
+    C->>S: POST /actions (do action + auth token)
 
-    alt Authenticated
-        AuthService-->>APIGateway: OK
-        APIGateway->>ScoreService: Forward update request
-        ScoreService->>ScoreProcessor: validateAction(userId, actionId)
+    activate S
+    S->>Auth: Validate token & permissions
 
-        alt Action valid and unique
-            ScoreProcessor->>Database: Persist new score, save actionId
-            ScoreProcessor->>Cache: Invalidate leaderboard cache
-            alt Top 10 changed
-                ScoreProcessor->>Cache: Get updated leaderboard
-                Cache-->>ScoreProcessor: Top 10
-                ScoreProcessor->>NotificationService: Broadcast new leaderboard
-                NotificationService-->>Frontend: Push via WebSocket
-            end
-            ScoreService-->>APIGateway: { success: true, newScore }
-        else Invalid or duplicate action
-            ScoreService-->>APIGateway: { success: false, error }
+    alt Auth failed
+        Auth-->>S: 401 Unauthorized
+        S-->>C: 401 Unauthorized
+    else Auth success
+        Auth-->>S: OK
+        S->>S: Validate action & result
+
+        alt Validated failed
+            S-->>C: 400 Bad Request
+        else
+            S->>DB: Update user score
+            DB-->>S: Success
+
+            S->>Redis: ZADD leaderboard user new_score
+            Redis-->>S: OK
+
+            S->>Redis: ZREVRANGE leaderboard 0 9 WITHSCORES
+            Redis-->>S: Top 10 List
+
+            S->>NS: Push updated leaderboard
+
+            S-->>C: 200 OK (Score updated)
         end
-    else Not authenticated
-        AuthService-->>APIGateway: Error
-        APIGateway-->>Frontend: 401 Unauthorized
     end
 
+    deactivate S
 ```
 
 ---
