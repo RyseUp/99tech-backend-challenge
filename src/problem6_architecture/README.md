@@ -56,7 +56,7 @@ This module implements a real-time scoreboard system for a web/app platform. It 
 sequenceDiagram
   participant User
   participant Frontend
-  participant APIGateway
+  participant ApplicationServer
   participant AuthService
   participant ScoreService
   participant ScoreProcessor
@@ -64,32 +64,30 @@ sequenceDiagram
   participant Cache
   participant NotificationService
 
-  User->>Frontend: Completes game action
-  Frontend->>APIGateway: POST /api/update-score
-  APIGateway->>AuthService: Validate JWT
+  User->>Frontend: Completes mission/game
+  Frontend->>ApplicationServer: Send mission/game result (action)
 
-  alt Authenticated
-    AuthService-->>APIGateway: OK
-    APIGateway->>ScoreService: Forward update request
-    ScoreService->>ScoreProcessor: validateAction(userId, actionId)
+  ApplicationServer->>AuthService: Validate user/session (JWT, etc.)
+  AuthService-->>ApplicationServer: OK
 
-    alt Action valid and unique
-      ScoreProcessor->>Database: Persist new score, save actionId
-      ScoreProcessor->>Cache: Invalidate leaderboard cache
-      alt Top 10 changed
-        ScoreProcessor->>Cache: Get updated leaderboard
-        Cache-->>ScoreProcessor: Top 10
-        ScoreProcessor->>NotificationService: Broadcast new leaderboard
-        NotificationService-->>Frontend: Push via WebSocket
-      end
-      ScoreService-->>APIGateway: { success: true, newScore }
-    else Invalid or duplicate action
-      ScoreService-->>APIGateway: { error: "Invalid action" }
+  ApplicationServer->>ScoreService: POST /internal/update-score (userId, actionId)
+
+  ScoreService->>ScoreProcessor: validateAction(userId, actionId)
+
+  alt Action valid and unique
+    ScoreProcessor->>Database: Persist new score, save actionId
+    ScoreProcessor->>Cache: Invalidate leaderboard cache
+    alt Top 10 changed
+      ScoreProcessor->>Cache: Get updated leaderboard
+      Cache-->>ScoreProcessor: Top 10
+      ScoreProcessor->>NotificationService: Broadcast new leaderboard
+      NotificationService-->>Frontend: WebSocket push leaderboard
     end
-  else Invalid JWT
-    AuthService-->>APIGateway: 401 Unauthorized
-    APIGateway-->>Frontend: Error
+    ScoreService-->>ApplicationServer: { success: true, newScore }
+  else Invalid or duplicate action
+    ScoreService-->>ApplicationServer: { error: "Invalid action" }
   end
+
 ```
 
 ---
